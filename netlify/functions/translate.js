@@ -3,7 +3,8 @@
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 // Allow per-site default target via Netlify env var `SITE_MAIN_TARGET` (e.g. 'fr', 'zh', 'hi', 'en')
-const SITE_MAIN_TARGET_RAW = process.env.SITE_MAIN_TARGET || null;
+// For French site, default to 'fr' if not set
+const SITE_MAIN_TARGET_RAW = process.env.SITE_MAIN_TARGET || 'fr';
 let SITE_MAIN_TARGET = null;
 if (SITE_MAIN_TARGET_RAW) {
   SITE_MAIN_TARGET = mapLanguageNameToCode ? mapLanguageNameToCode(SITE_MAIN_TARGET_RAW) : (String(SITE_MAIN_TARGET_RAW).trim().toLowerCase());
@@ -157,7 +158,8 @@ async function callGoogleDetect(q) {
   }
   const json = await apiRes.json();
   if (json && json.data && json.data.detections && json.data.detections[0] && json.data.detections[0][0]) {
-    return json.data.detections[0][0].language;
+    const detection = json.data.detections[0][0];
+    return { language: detection.language, confidence: detection.confidence || 0 };
   }
   throw new Error('Invalid response from Google Detect');
 }
@@ -215,8 +217,8 @@ exports.handler = async function(event) {
       sourceCode = mapLanguageNameToCode(userSource);
       if (!sourceCode) console.log('Could not map source language:', userSource);
     }
-    // default target: prefer SITE_MAIN_TARGET (set per Netlify site), otherwise fall back to Spanish
-    let targetCode = SITE_MAIN_TARGET || 'es';
+    // default target: prefer SITE_MAIN_TARGET (set per Netlify site), otherwise fall back to French
+    let targetCode = SITE_MAIN_TARGET || 'fr';
      if (userTarget) {
        const mapped = mapLanguageNameToCode(userTarget);
        if (mapped) {
@@ -228,6 +230,15 @@ exports.handler = async function(event) {
     // Debug: log resolved language codes
     console.log('Resolved language codes', { sourceCode, targetCode });
     let englishText;
+    
+  // Normalize language codes: strip region subtags (e.g., zh-CN -> zh)
+  if (sourceCode && sourceCode.includes('-')) {
+    sourceCode = sourceCode.split('-')[0];
+  }
+  if (targetCode && targetCode.includes('-')) {
+    targetCode = targetCode.split('-')[0];
+  }
+
   // Track detection/used target information to return to client
   let detectedSource = sourceCode || null;
   let usedTarget = targetCode || null;
@@ -235,15 +246,36 @@ exports.handler = async function(event) {
       // If we don't know the source language, try to detect it using Google Detect
       if (!sourceCode) {
         try {
-          const detected = await callGoogleDetect(text);
-          if (detected) {
+          const detectResult = await callGoogleDetect(text);
+          if (detectResult) {
+            let detected = detectResult.language;
+            const confidence = detectResult.confidence || 0;
+            
+            // Normalize detected code
+            if (detected && detected.includes('-')) {
+              detected = detected.split('-')[0];
+            }
+            
+            console.log('Detected source language:', detected, 'confidence:', confidence);
+            
+            // Confidence-based heuristics: treat low-confidence cases conservatively
+            if (confidence < 0.5) {
+              // Low confidence: check if it could be Portuguese (often misdetected as Spanish or vice versa)
+              if (/ão|ü|ç/.test(text)) detected = 'pt';
+              // Check for Vietnamese pinyin-like patterns
+              else if (/ệ|ễ|ư|đ/.test(text)) detected = 'vi';
+              // Check for Japanese hiragana/katakana
+              else if (/[\u3040-\u309f\u30a0-\u30ff]/.test(text)) detected = 'ja';
+            }
+            
             sourceCode = detected;
-            console.log('Detected source language:', sourceCode);
+            
             // Auto-map detected source to a sensible target if user didn't supply one
-            // Requirements: spanish -> english; french/hindi/mandarin/vietnamese -> spanish
+            // French site: if detected source is French -> translate to English
+            // Otherwise translate to French (site main target)
             if (!userTarget) {
-              if (sourceCode === 'es') targetCode = 'en';
-              else if (['fr', 'hi', 'zh', 'vi'].includes(sourceCode)) targetCode = 'es';
+              if (sourceCode === 'fr') targetCode = 'en';
+              else targetCode = 'fr';
             }
             detectedSource = sourceCode;
             usedTarget = targetCode;

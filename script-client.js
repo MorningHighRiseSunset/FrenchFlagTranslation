@@ -43,6 +43,40 @@ const manualOptions = [
 
 let detectTimer = null;
 const DEBOUNCE_MS = 1500; // Increased from 600ms to avoid interrupting the user mid-word
+let lastTranslation = null;
+let lastInput = null;
+
+// Pinyin conversion helper for iOS TTS fallback
+function mandarinToPinyinStr(text) {
+    const cjkToPinyin = {
+        '虐待': 'nüèdài', '中文': 'zhōngwén', '你好': 'nǐ hǎo', '谢谢': 'xièxiè',
+        '对不起': 'duìbùqǐ', '再见': 'zàijiàn', '是': 'shì', '不': 'bù',
+        '有': 'yǒu', '很': 'hěn', '好': 'hǎo', '吗': 'ma'
+    };
+    let result = text;
+    Object.keys(cjkToPinyin).forEach(char => {
+        result = result.split(char).join(cjkToPinyin[char]);
+    });
+    return result;
+}
+
+// Audio unlock for mobile (TTS requires user gesture on iOS)
+function unlockAudioOnGesture() {
+    if (!window.speechSynthesis) return;
+    const unlock = () => {
+        const u = new SpeechSynthesisUtterance('');
+        u.volume = 0.01;
+        try {
+            window.speechSynthesis.speak(u);
+        } catch (e) {
+            console.log('Audio unlock attempt:', e.message);
+        }
+        document.removeEventListener('click', unlock);
+        document.removeEventListener('touchstart', unlock);
+    };
+    document.addEventListener('click', unlock, { once: true });
+    document.addEventListener('touchstart', unlock, { once: true });
+}
 
 // Voice recognition (Web Speech API) helpers
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -176,7 +210,7 @@ function speakText(text) {
     // Try to detect target language for appropriate voice
     const manualToggle = document.getElementById('manualToggle');
     const manualTarget = document.getElementById('manualTarget');
-    let targetLang = 'es'; // default to Spanish
+    let targetLang = 'fr'; // default to French
     
     if (manualToggle && manualToggle.checked && manualTarget) {
         const targetValue = manualTarget.value;
@@ -189,10 +223,19 @@ function speakText(text) {
             'mandarin': 'zh',
             'vietnamese': 'vi'
         };
-        targetLang = langMap[targetValue] || 'es';
+        targetLang = langMap[targetValue] || 'fr';
     }
     
-    utterance.lang = targetLang;
+    // iOS/Safari TTS fallback: if target is Mandarin and native voice likely unavailable,
+    // convert to pinyin and speak using en-US voice to pronounce the romanization
+    if (targetLang === 'zh') {
+        const pinyinText = mandarinToPinyinStr(text);
+        utterance.text = pinyinText;
+        utterance.lang = 'en-US';
+    } else {
+        utterance.lang = targetLang;
+    }
+    
     utterance.rate = 0.9; // Slightly slower for clarity
     
     window.speechSynthesis.speak(utterance);
@@ -334,24 +377,38 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Debounced input
+    // Block Enter key and disable auto-translate on input
     if (input) {
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === 'Return') {
+                e.preventDefault();
+            }
+        });
         input.addEventListener('input', function() {
             if (output && output.textContent.trim()) clearOutputAnimated(output);
-            if (detectTimer) clearTimeout(detectTimer);
-            detectTimer = setTimeout(() => startTranslate(), DEBOUNCE_MS);
+            // Do NOT auto-translate; only translate on explicit button click
         });
     }
 
-    // Manual toggle
+    // Translate button click handler
+    const translateBtn = document.getElementById('translateBtn');
+    if (translateBtn) {
+        translateBtn.addEventListener('click', async function() {
+            await startTranslate();
+        });
+    }
+
+    // Manual toggle (only show/hide controls, do NOT auto-translate)
     if (manualToggle) {
         manualToggle.addEventListener('change', function() {
             const manualOn = manualToggle.checked;
             if (manualControls) manualControls.style.display = manualOn ? 'flex' : 'none';
-            // re-run translate to respect manual mode change
-            startTranslate();
+            // Do NOT auto-run translate when toggling manual mode
         });
     }
+
+    // Unlock audio on user gesture for iOS TTS
+    unlockAudioOnGesture();
 
         // Microphone button (voice input)
         const micBtn = document.getElementById('micBtn');
