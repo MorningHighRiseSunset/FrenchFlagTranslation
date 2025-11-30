@@ -5,10 +5,9 @@ const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 // Allow per-site default target via Netlify env var `SITE_MAIN_TARGET` (e.g. 'fr', 'zh', 'hi', 'en')
 // For French site, default to 'fr' if not set
 const SITE_MAIN_TARGET_RAW = process.env.SITE_MAIN_TARGET || 'fr';
-let SITE_MAIN_TARGET = null;
-if (SITE_MAIN_TARGET_RAW) {
-  SITE_MAIN_TARGET = mapLanguageNameToCode ? mapLanguageNameToCode(SITE_MAIN_TARGET_RAW) : (String(SITE_MAIN_TARGET_RAW).trim().toLowerCase());
-}
+// Initialize to the raw value first; resolve to a canonical code after
+// alias maps and resolver functions have been initialized below.
+let SITE_MAIN_TARGET = SITE_MAIN_TARGET_RAW ? String(SITE_MAIN_TARGET_RAW).trim().toLowerCase() : null;
 // Safe debug: log presence of the API key (masked) so we can tell if Netlify injected it
 try {
   if (GOOGLE_API_KEY) {
@@ -77,6 +76,17 @@ Object.keys(canonicalToCode).forEach((canonical) => {
 const fallbackMap = {
   en: 'en', es: 'es', fr: 'fr', hi: 'hi', zh: 'zh', vi: 'vi', pt: 'pt', de: 'de', it: 'it', ar: 'ar', ja: 'ja', ko: 'ko', ru: 'ru'
 };
+
+// Resolve SITE_MAIN_TARGET to canonical code (after aliasToCode and resolver are initialized)
+try {
+  if (SITE_MAIN_TARGET && typeof mapLanguageNameToCode === 'function') {
+    const mapped = mapLanguageNameToCode(SITE_MAIN_TARGET);
+    if (mapped) SITE_MAIN_TARGET = mapped;
+  }
+} catch (e) {
+  // Defensive: don't let resolution errors break the function startup
+  console.log('Warning: SITE_MAIN_TARGET resolution failed', String(e));
+}
 
 function mapLanguageNameToCode(name) {
   if (!name) return null;
