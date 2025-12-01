@@ -261,7 +261,7 @@ function populateManualSelects() {
         src.appendChild(o1);
 
         const o2 = document.createElement('option');
-        o2.value = opt.key === '' ? 'spanish' : opt.key; // default target options should include spanish first
+        o2.value = opt.key === '' ? 'french' : opt.key; // default target should be french for this French translator
         o2.textContent = locale === i18n.es ? (opt.label_es || opt.label_en) : (opt.label_en || opt.label_es);
         tgt.appendChild(o2);
     });
