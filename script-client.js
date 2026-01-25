@@ -45,6 +45,7 @@ let detectTimer = null;
 const DEBOUNCE_MS = 1500; // Increased from 600ms to avoid interrupting the user mid-word
 let lastTranslation = null;
 let lastInput = null;
+let lastTranslatedText = null;
 
 // Pinyin conversion helper for iOS TTS fallback
 function mandarinToPinyinStr(text) {
@@ -194,8 +195,7 @@ function typeOutputAnimated(el, text) {
             span.classList.add('pop-in');
         }, index * 28);
     });
-    // Speak the result text after animation
-    speakText(text);
+    // Removed automatic speaking
 }
 
 function speakText(text) {
@@ -301,6 +301,7 @@ async function startTranslate() {
             output.textContent = 'Error: ' + data.error;
         } else {
             const result = data.result || '';
+            lastTranslatedText = result;
             typeOutputAnimated(output, result);
 
             // Update detection/target display
@@ -318,6 +319,20 @@ async function startTranslate() {
                     const locale = localizeUI();
                     detectLabel.textContent = `${locale.detectedPrefix} ${detectedName} → ${locale.translatingTo} ${targetName}`;
                 }
+            }
+
+            // Show/hide speak button based on target language
+            const speakBtn = document.getElementById('speakBtn');
+            if (speakBtn) {
+                const manualToggleEl = document.getElementById('manualToggle');
+                let isFrench = false;
+                if (manualToggleEl && manualToggleEl.checked) {
+                    const targetVal = document.getElementById('manualTarget').value;
+                    isFrench = (targetVal === 'french');
+                } else {
+                    isFrench = (data.targetUsed === 'fr');
+                }
+                speakBtn.style.display = isFrench ? 'block' : 'none';
             }
         }
     } catch (error) {
@@ -429,6 +444,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 });
             }
+        }
+
+        // Speak button (TTS for translated text)
+        const speakBtn = document.getElementById('speakBtn');
+        if (speakBtn) {
+            speakBtn.addEventListener('click', function() {
+                if (lastTranslatedText) {
+                    speakText(lastTranslatedText);
+                }
+            });
         }
 
 });
