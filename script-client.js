@@ -24,6 +24,18 @@ const i18n = {
         manualSourceLabel: "Hablo:",
         manualTargetLabel: "Traducir a:",
         autoOption: "Detección automática"
+    },
+    fr: {
+        placeholder: "Tapez un mot ou une phrase...",
+        button: "Traduire",
+        help: "Utilisez des phrases courtes pour de meilleurs résultats",
+        errorServer: "Impossible d'accéder au serveur de traduction. Assurez-vous qu'il est en cours d'exécution.",
+        detectedPrefix: "Détecté:",
+        translatingTo: "Traduction en:",
+        manualMode: "Mode manuel",
+        manualSourceLabel: "Je parle:",
+        manualTargetLabel: "Traduire en:",
+        autoOption: "Détection automatique"
     }
 };
 
@@ -32,13 +44,13 @@ const codeToFriendly = { en: 'English', es: 'Spanish', fr: 'French', hi: 'Hindi'
 
 // Manual options (values map to server mapping expectations)
 const manualOptions = [
-    { key: '', label_en: i18n.en.autoOption, label_es: i18n.es.autoOption },
-    { key: 'english', label_en: 'English', label_es: 'Inglés' },
-    { key: 'spanish', label_en: 'Spanish (Español)', label_es: 'Español' },
-    { key: 'french', label_en: 'French (Français)', label_es: 'Francés' },
-    { key: 'hindi', label_en: 'Hindi (हिंदी)', label_es: 'Hindi' },
-    { key: 'mandarin', label_en: 'Mandarin (中文)', label_es: 'Mandarín' },
-    { key: 'vietnamese', label_en: 'Vietnamese (Tiếng Việt)', label_es: 'Vietnamita' }
+    { key: '', label_en: i18n.en.autoOption, label_es: i18n.es.autoOption, label_fr: i18n.fr.autoOption },
+    { key: 'english', label_en: 'English', label_es: 'Inglés', label_fr: 'Anglais' },
+    { key: 'spanish', label_en: 'Spanish (Español)', label_es: 'Español', label_fr: 'Espagnol' },
+    { key: 'french', label_en: 'French (Français)', label_es: 'Francés', label_fr: 'Français' },
+    { key: 'hindi', label_en: 'Hindi (हिंदी)', label_es: 'Hindi', label_fr: 'Hindi' },
+    { key: 'mandarin', label_en: 'Mandarin (中文)', label_es: 'Mandarín', label_fr: 'Mandarin' },
+    { key: 'vietnamese', label_en: 'Vietnamese (Tiếng Việt)', label_es: 'Vietnamita', label_fr: 'Vietnamien' }
 ];
 
 let detectTimer = null;
@@ -95,12 +107,24 @@ function populateManualSelects() {
     manualOptions.forEach(opt => {
         const o1 = document.createElement('option');
         o1.value = opt.key;
-        o1.textContent = locale === i18n.es ? (opt.label_es || opt.label_en) : (opt.label_en || opt.label_es);
+        if (locale === i18n.fr) {
+            o1.textContent = opt.label_fr || opt.label_en;
+        } else if (locale === i18n.es) {
+            o1.textContent = opt.label_es || opt.label_en;
+        } else {
+            o1.textContent = opt.label_en || opt.label_es;
+        }
         src.appendChild(o1);
 
         const o2 = document.createElement('option');
-        o2.value = opt.key === '' ? 'spanish' : opt.key; // default target options should include spanish first
-        o2.textContent = locale === i18n.es ? (opt.label_es || opt.label_en) : (opt.label_en || opt.label_es);
+        o2.value = opt.key === '' ? 'french' : opt.key; // default target options should include french first
+        if (locale === i18n.fr) {
+            o2.textContent = opt.label_fr || opt.label_en;
+        } else if (locale === i18n.es) {
+            o2.textContent = opt.label_es || opt.label_en;
+        } else {
+            o2.textContent = opt.label_en || opt.label_es;
+        }
         tgt.appendChild(o2);
     });
 }
@@ -112,6 +136,88 @@ async function startTranslate() {
     if (!input || !output) return;
     const text = input.value.trim();
     if (!text) return;
+
+    // Check for alphabet request (client-side, no server needed)
+    if (/^(?:show\s+me\s+)?(?:the\s+)?alphabet$/i.test(text)) {
+        setBusy(true);
+        const frenchAlphabet = [
+            { letter: 'A', pronunciation: 'ah' },
+            { letter: 'B', pronunciation: 'bay' },
+            { letter: 'C', pronunciation: 'say' },
+            { letter: 'D', pronunciation: 'day' },
+            { letter: 'E', pronunciation: 'uh' },
+            { letter: 'F', pronunciation: 'eff' },
+            { letter: 'G', pronunciation: 'zhay' },
+            { letter: 'H', pronunciation: 'ash' },
+            { letter: 'I', pronunciation: 'ee' },
+            { letter: 'J', pronunciation: 'zhee' },
+            { letter: 'K', pronunciation: 'kah' },
+            { letter: 'L', pronunciation: 'ell' },
+            { letter: 'M', pronunciation: 'em' },
+            { letter: 'N', pronunciation: 'en' },
+            { letter: 'O', pronunciation: 'oh' },
+            { letter: 'P', pronunciation: 'pay' },
+            { letter: 'Q', pronunciation: 'koo' },
+            { letter: 'R', pronunciation: 'air' },
+            { letter: 'S', pronunciation: 'ess' },
+            { letter: 'T', pronunciation: 'tay' },
+            { letter: 'U', pronunciation: 'oo' },
+            { letter: 'V', pronunciation: 'vay' },
+            { letter: 'W', pronunciation: 'doo-bluh-vay' },
+            { letter: 'X', pronunciation: 'eeks' },
+            { letter: 'Y', pronunciation: 'ee-grek' },
+            { letter: 'Z', pronunciation: 'zed' }
+        ];
+        
+        output.innerHTML = '';
+        const alphabetDiv = document.createElement('div');
+        alphabetDiv.className = 'alphabet-display';
+        
+        const title = document.createElement('h3');
+        title.textContent = 'French Alphabet (L\'Alphabet Français)';
+        title.style.marginBottom = '15px';
+        alphabetDiv.appendChild(title);
+        
+        const grid = document.createElement('div');
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(120px, 1fr))';
+        grid.style.gap = '10px';
+        
+        frenchAlphabet.forEach(item => {
+            const letterCard = document.createElement('div');
+            letterCard.style.border = '1px solid #ddd';
+            letterCard.style.padding = '10px';
+            letterCard.style.borderRadius = '8px';
+            letterCard.style.textAlign = 'center';
+            letterCard.style.backgroundColor = '#f9f9f9';
+            
+            const letter = document.createElement('div');
+            letter.textContent = item.letter;
+            letter.style.fontSize = '24px';
+            letter.style.fontWeight = 'bold';
+            letter.style.color = '#0055A4';
+            
+            const pronunciation = document.createElement('div');
+            pronunciation.textContent = item.pronunciation;
+            pronunciation.style.fontSize = '14px';
+            pronunciation.style.color = '#666';
+            pronunciation.style.marginTop = '5px';
+            
+            letterCard.appendChild(letter);
+            letterCard.appendChild(pronunciation);
+            grid.appendChild(letterCard);
+        });
+        
+        alphabetDiv.appendChild(grid);
+        output.appendChild(alphabetDiv);
+        
+        if (detectLabel) {
+            detectLabel.textContent = 'French Alphabet';
+        }
+        
+        setBusy(false);
+        return;
+    }
 
     setBusy(true);
     try {
@@ -126,7 +232,7 @@ async function startTranslate() {
             if (manualTarget && manualTarget.value) payload.target = manualTarget.value;
         }
 
-        const response = await fetch('/.netlify/functions/translate', {
+        const response = await fetch('/api/translate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -172,7 +278,13 @@ function friendlyNameFromManualKey(key) {
     const m = manualOptions.find(o => o.key === key);
     if (!m) return key;
     const locale = localizeUI();
-    return locale === i18n.es ? (m.label_es || m.label_en) : (m.label_en || m.label_es);
+    if (locale === i18n.fr) {
+        return m.label_fr || m.label_en;
+    } else if (locale === i18n.es) {
+        return m.label_es || m.label_en;
+    } else {
+        return m.label_en || m.label_es;
+    }
 }
 
 function localeString(k) {
