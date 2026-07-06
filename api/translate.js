@@ -2,7 +2,9 @@
 // This file was migrated from the Netlify function implementation so behavior is consistent
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
-// Safe debug: log presence of the API key (masked) so we can tell if Vercel injected it
+const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
+
+// Safe debug: log presence of the API keys (masked) so we can tell if Vercel injected them
 try {
   if (GOOGLE_API_KEY) {
     const masked = `${GOOGLE_API_KEY.slice(0, 6)}...${GOOGLE_API_KEY.slice(-4)}`;
@@ -13,6 +15,17 @@ try {
 } catch (e) {
   // Defensive: don't let logging errors break the function
   console.log('Error while logging GOOGLE_API_KEY presence', String(e));
+}
+
+try {
+  if (DEEPL_API_KEY) {
+    const masked = `${DEEPL_API_KEY.slice(0, 6)}...${DEEPL_API_KEY.slice(-4)}`;
+    console.log('DEEPL_API_KEY present:', true, 'masked:', masked);
+  } else {
+    console.log('DEEPL_API_KEY present:', false);
+  }
+} catch (e) {
+  console.log('Error while logging DEEPL_API_KEY presence', String(e));
 }
 const path = require('path');
 
@@ -193,6 +206,47 @@ async function callGoogleTranslate(q, target, source) {
   throw err;
 }
 
+async function callDeepLTranslate(q, target, source) {
+  const url = 'https://api-free.deepl.com/v2/translate';
+  const payload = { 
+    text: [String(q)], 
+    target_lang: target.toUpperCase()
+  };
+  if (source) payload.source_lang = source.toUpperCase();
+
+  const apiRes = await fetch(url, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!apiRes.ok) {
+    let textErr = '';
+    try {
+      textErr = await apiRes.text();
+    } catch (e) {
+      textErr = String(e);
+    }
+    console.log('DeepL Translate failed', { status: apiRes.status, body: textErr.slice(0,2000) });
+    const err = new Error('DeepL API error');
+    err.status = apiRes.status;
+    err.details = textErr;
+    throw err;
+  }
+
+  const json = await apiRes.json();
+
+  if (json && json.translations && json.translations[0]) {
+    return { translatedText: json.translations[0].text };
+  }
+  const err = new Error('Invalid response from DeepL Translate');
+  err.raw = json;
+  throw err;
+}
+
 export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== 'POST') {
@@ -202,7 +256,7 @@ export default async function handler(req, res) {
   console.log('translate handler invoked');
   try {
     console.log('Incoming request body (raw):', typeof req.body === 'string' ? req.body.slice(0,1000) : req.body);
-    if (!GOOGLE_API_KEY) return res.status(500).json({ error: 'Server: API key not configured' });
+    if (!GOOGLE_API_KEY && !DEEPL_API_KEY) return res.status(500).json({ error: 'Server: API key not configured. Add GOOGLE_API_KEY or DEEPL_API_KEY to environment variables.' });
     const body = req.body || {};
     console.log('Parsed request body:', { text: body.text ? '[REDACTED]' : undefined, source: body.source, target: body.target });
     const { text, source: userSource, target: userTarget } = body || {};
@@ -309,10 +363,19 @@ export default async function handler(req, res) {
 
       if (extractedTargetCode) {
         try {
-          // Only call Google Translate if we have a valid source code to translate FROM
-          // If sourceCode is not available or null, fall through to fallback
+          // Prefer DeepL if available, otherwise use Google
           if (sourceCode && sourceCode !== extractedTargetCode) {
-            const translated = await callGoogleTranslate(phraseToTranslate || text, extractedTargetCode, sourceCode);
+            let translated;
+            if (DEEPL_API_KEY) {
+              try {
+                translated = await callDeepLTranslate(phraseToTranslate || text, extractedTargetCode, sourceCode);
+              } catch (deeplErr) {
+                console.log('DeepL translation failed, falling back to Google', { error: String(deeplErr).slice(0, 200) });
+                translated = await callGoogleTranslate(phraseToTranslate || text, extractedTargetCode, sourceCode);
+              }
+            } else {
+              translated = await callGoogleTranslate(phraseToTranslate || text, extractedTargetCode, sourceCode);
+            }
             // Return only the translated phrase as the direct answer and include detected/source info
             return res.status(200).json({ result: translated.translatedText, detectedSource: detectedSource, targetUsed: extractedTargetCode });
           }
@@ -326,8 +389,18 @@ export default async function handler(req, res) {
 
     // Fallback: translate from source to target language using user's preference
     try {
-      console.log('Calling Google Translate for fallback', { text: text.slice(0,200), targetCode, sourceCode });
-      const translated = await callGoogleTranslate(text, targetCode, sourceCode);
+      console.log('Calling translation API', { text: text.slice(0,200), targetCode, sourceCode, provider: DEEPL_API_KEY ? 'DeepL (preferred)' : 'Google' });
+      let translated;
+      if (DEEPL_API_KEY) {
+        try {
+          translated = await callDeepLTranslate(text, targetCode, sourceCode);
+        } catch (deeplErr) {
+          console.log('DeepL translation failed, falling back to Google', { error: String(deeplErr).slice(0, 200) });
+          translated = await callGoogleTranslate(text, targetCode, sourceCode);
+        }
+      } else {
+        translated = await callGoogleTranslate(text, targetCode, sourceCode);
+      }
       return res.status(200).json({ result: translated.translatedText, detectedSource: detectedSource, targetUsed: targetCode });
     } catch (err) {
       return res.status(502).json({ error: 'Translation provider error', details: err.details || String(err) });
